@@ -1,0 +1,16 @@
+system:
+  name: "ridersense"
+  log_level: "debug"
+  log_dir: "/tmp/ridersense/logs"
+
+services:
+  camera:
+    enabled: false
+  imu:
+    enabled: false
+  gps:
+    enabled: false
+  slam:
+    enabled: false
+  detector:
+    enabled: false
