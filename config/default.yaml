@@ -2,14 +2,23 @@ system:
   name: "ridersense"
   log_level: "debug"
   log_dir: "/tmp/ridersense/logs"
+  data_dir: "/tmp/ridersense/data"
 
 services:
   camera:
     enabled: false
+    device_id: 0
+    width: 640
+    height: 480
+    fps: 30
   imu:
     enabled: false
+    rate_hz: 100
   gps:
     enabled: false
+    rate_hz: 10
+  frame_logger:
+    enabled: true
   slam:
     enabled: false
   detector:
