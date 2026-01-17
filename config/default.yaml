@@ -4,6 +4,12 @@ system:
   log_dir: "/tmp/ridersense/logs"
   data_dir: "/tmp/ridersense/data"
 
+sync:
+  max_time_diff_ms: 50
+  buffer_size: 100
+  imu_resample_hz: 200
+  gps_resample_hz: 10
+
 services:
   camera:
     enabled: false

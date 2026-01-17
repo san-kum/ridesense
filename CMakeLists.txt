@@ -15,8 +15,19 @@ add_library(ridersense_common
     src/common/logger.cpp
 )
 
+add_library(ridersense_sync
+    src/sync/timestamp_sync.cpp
+    src/sync/resampler.cpp
+    src/sync/time_aligner.cpp
+)
+
 target_include_directories(ridersense_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(ridersense_sync PUBLIC
+  ridersense_common
+  ridersense_capture
 )
 
 target_link_libraries(ridersense_common PUBLIC
@@ -53,5 +64,6 @@ target_link_libraries(ridersense PRIVATE
     ridersense_common
     ridersense_capture
     ridersense_storage
+    ridersense_sync
 )
 

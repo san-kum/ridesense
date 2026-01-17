@@ -5,6 +5,7 @@
 #include "common/logger.h"
 #include "services/service_manager.h"
 #include "storage/frame_logger.h"
+#include "sync/time_aligner.h"
 #include <atomic>
 #include <csignal>
 #include <filesystem>
@@ -39,7 +40,7 @@ int main(int argc, char **argv) {
 
   auto logger = Logger::get("main");
   LOG_INFO(logger, "ridersense starting");
-  LOG_INFO(logger, "Config loaded from: {}", config_path);
+  LOG_INFO(logger, "config loaded from: {}", config_path);
 
   std::signal(SIGINT, signal_handler);
   std::signal(SIGTERM, signal_handler);
@@ -54,6 +55,26 @@ int main(int argc, char **argv) {
     service_mgr.add(frame_logger);
   }
 
+  std::shared_ptr<TimeAligner> time_aligner;
+  if (Config::instance().service_enabled("time_aligner")) {
+    auto sync_cfg = Config::instance().root()["sync"];
+    int max_diff_ms = sync_cfg["max_time_diff_ms"].as<int>(50);
+    int buffer_size = sync_cfg["buffer_size"].as<int>(100);
+
+    time_aligner = std::make_shared<TimeAligner>(
+        std::chrono::milliseconds(max_diff_ms), buffer_size);
+
+    if (frame_logger) {
+      time_aligner->set_callback([frame_logger](const SyncedFrames &bundle) {
+        frame_logger->log_frame(bundle.image);
+        frame_logger->log_frame(bundle.imu);
+        frame_logger->log_frame(bundle.gps);
+      });
+    }
+
+    service_mgr.add(time_aligner);
+  }
+
   if (Config::instance().service_enabled("camera")) {
     auto cam_cfg = Config::instance().root()["services"]["camera"];
     int device_id = cam_cfg["device_id"].as<int>(0);
@@ -63,7 +84,12 @@ int main(int argc, char **argv) {
 
     auto camera = std::make_shared<CameraStream>(device_id, width, height, fps);
 
-    if (frame_logger) {
+    if (time_aligner) {
+      camera->set_callback([time_aligner](auto frame) {
+        auto img = std::static_pointer_cast<ImageFrame>(frame);
+        time_aligner->on_image(img);
+      });
+    } else if (frame_logger) {
       camera->set_callback(
           [frame_logger](auto frame) { frame_logger->log_frame(frame); });
     }
@@ -77,7 +103,12 @@ int main(int argc, char **argv) {
 
     auto imu = std::make_shared<ImuStream>(rate_hz);
 
-    if (frame_logger) {
+    if (time_aligner) {
+      imu->set_callback([time_aligner](auto frame) {
+        auto imu_frame = std::static_pointer_cast<ImuFrame>(frame);
+        time_aligner->on_imu(imu_frame);
+      });
+    } else if (frame_logger) {
       imu->set_callback(
           [frame_logger](auto frame) { frame_logger->log_frame(frame); });
     }
@@ -91,7 +122,12 @@ int main(int argc, char **argv) {
 
     auto gps = std::make_shared<GpsStream>(rate_hz);
 
-    if (frame_logger) {
+    if (time_aligner) {
+      gps->set_callback([time_aligner](auto frame) {
+        auto gps_frame = std::static_pointer_cast<GpsFrame>(frame);
+        time_aligner->on_gps(gps_frame);
+      });
+    } else if (frame_logger) {
       gps->set_callback(
           [frame_logger](auto frame) { frame_logger->log_frame(frame); });
     }
@@ -100,16 +136,17 @@ int main(int argc, char **argv) {
   }
 
   if (!service_mgr.init_all()) {
-    LOG_ERROR(logger, "Service initialization failed");
+    LOG_ERROR(logger, "service initialization failed");
     return 1;
   }
 
   if (!service_mgr.start_all()) {
-    LOG_ERROR(logger, "Service start failed");
+    LOG_ERROR(logger, "service start failed");
     service_mgr.shutdown_all();
     return 1;
   }
-  LOG_INFO(logger, "All services running");
+
+  LOG_INFO(logger, "all services running");
 
   auto last_report = std::chrono::steady_clock::now();
   while (running) {
@@ -117,8 +154,13 @@ int main(int argc, char **argv) {
 
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_report)
-            .count() >= 10) {
-      // TODO: add stats reporting
+            .count() >= 5) {
+      if (time_aligner) {
+        auto stats = time_aligner->get_stats();
+        LOG_INFO(logger, "sync stats - bundles: {}, images: {}, dropped: {}",
+                 stats.bundles_emitted, stats.images_received,
+                 stats.images_dropped);
+      }
       last_report = now;
     }
   }
