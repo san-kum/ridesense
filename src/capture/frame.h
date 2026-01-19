@@ -1,8 +1,11 @@
 #pragma once
 #include <chrono>
 #include <cstdint>
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Geometry>
 #include <opencv2/core.hpp>
-#include <opencv2/core/hal/interface.h>
+#include <vector>
 
 namespace ridersense {
 using Timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>;
@@ -56,6 +59,68 @@ struct GpsFrame : public Frame {
   GpsFrame(Timestamp ts, uint64_t seq) : Frame(FrameType::GPS, ts, seq) {}
 };
 
-// TODO: add PoseFrame, DetectionFrame, LaneFrame later
+struct PoseFrame : public Frame {
+  Eigen::Vector3d position;
+  Eigen::Quaterniond orientation;
+  Eigen::Vector3d velocity;
+
+  Eigen::Matrix<double, 6, 6> covariance;
+
+  enum class TrackingState { NOT_INITIALIZED, OK, LOST };
+  TrackingState state;
+
+  int num_tracked_points;
+  PoseFrame(Timestamp ts, uint64_t seq)
+      : Frame(FrameType::POSE, ts, seq), position(Eigen::Vector3d::Zero()),
+        orientation(Eigen::Quaterniond::Identity()),
+        velocity(Eigen::Vector3d::Zero()),
+        state(TrackingState::NOT_INITIALIZED), num_tracked_points(0) {
+    covariance.setIdentity();
+  }
+};
+
+struct DetectionFrame : public Frame {
+  struct Detection {
+    int class_id;
+    std::string class_name;
+    float confidence;
+    cv::Rect bbox;
+
+    bool has_3d{false};
+    Eigen::Vector3d position_3d;
+    float distance;
+  };
+
+  std::vector<Detection> detections;
+  int image_width;
+  int image_height;
+
+  DetectionFrame(Timestamp ts, uint64_t seq)
+      : Frame(FrameType::DETECTION, ts, seq), image_width(0), image_height(0) {}
+};
+
+struct LaneFrame : public Frame {
+  struct Lane {
+    std::vector<cv::Point2f> points;
+
+    float a, b, c;
+    bool is_valid;
+    enum class Type {
+      SOLID,
+      DASHED,
+      UNKNOWN,
+
+    };
+    Type type;
+
+    enum class Side { LEFT, RIGHT, CENTER };
+    Side side;
+  };
+  std::vector<Lane> lanes;
+
+  bool in_lane{true};
+  float lateral_offset{0.0f};
+  LaneFrame(Timestamp ts, uint64_t seq) : Frame(FrameType::LANE, ts, seq) {}
+};
 
 } // namespace ridersense

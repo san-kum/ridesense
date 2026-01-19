@@ -6,10 +6,16 @@
 #include "services/service_manager.h"
 #include "storage/frame_logger.h"
 #include "sync/time_aligner.h"
+
+#include "perception/lane_detector.h"
+#include "perception/object_detector.h"
+#include "perception/slam_processor.h"
+
 #include <atomic>
 #include <csignal>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 namespace {
 std::atomic<bool> running{true};
@@ -64,15 +70,77 @@ int main(int argc, char **argv) {
     time_aligner = std::make_shared<TimeAligner>(
         std::chrono::milliseconds(max_diff_ms), buffer_size);
 
-    if (frame_logger) {
-      time_aligner->set_callback([frame_logger](const SyncedFrames &bundle) {
+    service_mgr.add(time_aligner);
+  }
+
+  std::shared_ptr<SlamProcessor> slam_proc;
+  std::shared_ptr<ObjectDetector> obj_detector;
+  std::shared_ptr<LaneDetector> lane_detector;
+
+  if (Config::instance().service_enabled("slam")) {
+    auto slam_cfg = Config::instance().root()["perception"]["slam"];
+    std::string vocab_path = slam_cfg["vocabulary_path"].as<std::string>();
+    std::string mode = slam_cfg["mode"].as<std::string>();
+
+    slam_proc = std::make_shared<SlamProcessor>(vocab_path, mode);
+    service_mgr.add(slam_proc);
+  }
+
+  if (Config::instance().service_enabled("detector")) {
+    auto det_cfg = Config::instance().root()["perception"]["detector"];
+    std::string model_path = det_cfg["model_path"].as<std::string>();
+    float conf_thresh = det_cfg["confidence_threshold"].as<float>();
+    float nms_thresh = det_cfg["nms_threshold"].as<float>();
+    int input_size = det_cfg["input_size"].as<int>();
+
+    obj_detector = std::make_shared<ObjectDetector>(model_path, conf_thresh,
+                                                    nms_thresh, input_size);
+    service_mgr.add(obj_detector);
+  }
+
+  if (Config::instance().service_enabled("lane_detector")) {
+    auto lane_cfg = Config::instance().root()["perception"]["lane"];
+    float roi_top = lane_cfg["roi_top_ratio"].as<float>();
+    int canny_low = lane_cfg["canny_low"].as<int>();
+    int canny_high = lane_cfg["canny_high"].as<int>();
+    int hough_thresh = lane_cfg["hough_threshold"].as<int>();
+
+    lane_detector = std::make_shared<LaneDetector>(roi_top, canny_low,
+                                                   canny_high, hough_thresh);
+    service_mgr.add(lane_detector);
+  }
+
+  if (time_aligner) {
+    time_aligner->set_callback([&](const SyncedFrames &bundle) {
+      std::shared_ptr<PoseFrame> pose;
+      std::shared_ptr<DetectionFrame> detections;
+      std::shared_ptr<LaneFrame> lanes;
+
+      if (slam_proc) {
+        pose = slam_proc->process(bundle.image, bundle.imu);
+      }
+
+      if (obj_detector) {
+        detections = obj_detector->detect(bundle.image);
+      }
+
+      if (lane_detector) {
+        lanes = lane_detector->detect(bundle.image);
+      }
+
+      if (frame_logger) {
         frame_logger->log_frame(bundle.image);
         frame_logger->log_frame(bundle.imu);
         frame_logger->log_frame(bundle.gps);
-      });
-    }
 
-    service_mgr.add(time_aligner);
+        if (pose)
+          frame_logger->log_frame(pose);
+        if (detections)
+          frame_logger->log_frame(detections);
+        if (lanes)
+          frame_logger->log_frame(lanes);
+      }
+    });
   }
 
   if (Config::instance().service_enabled("camera")) {
@@ -165,7 +233,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  LOG_INFO(logger, "Shutting down...");
+  LOG_INFO(logger, "shutting down...");
   service_mgr.stop_all();
   service_mgr.shutdown_all();
 

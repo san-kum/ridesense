@@ -3,12 +3,31 @@ system:
   log_level: "debug"
   log_dir: "/tmp/ridersense/logs"
   data_dir: "/tmp/ridersense/data"
+  models_dir: "./models"
 
 sync:
   max_time_diff_ms: 50
   buffer_size: 100
   imu_resample_hz: 200
   gps_resample_hz: 10
+
+perception:
+  slam:
+    enabled: true
+    vocabulary_path: "./models/ORBvoc.txt"
+    mode: "monocular" # simple odometry
+  detector:
+    enabled: true
+    model_path: "./models/yolov5s.onnx"
+    confidence_threshold: 0.5
+    nms_threshold: 0.4
+    input_size: 640
+  lane:
+    enabled: true
+    roi_top_ratio: 0.6
+    canny_low: 50
+    canny_high: 150
+    hough_threshold: 50
 
 services:
   camera:
@@ -25,7 +44,11 @@ services:
     rate_hz: 10
   frame_logger:
     enabled: true
+  time_aligner:
+    enabled: true
   slam:
-    enabled: false
+    enabled: false # TODO: enable when ORB is ready
   detector:
+    enabled: false
+  lane_detector:
     enabled: false

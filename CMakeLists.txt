@@ -7,7 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio dnn)
 find_package(Threads REQUIRED)
 
 add_library(ridersense_common
@@ -21,6 +21,12 @@ add_library(ridersense_sync
     src/sync/time_aligner.cpp
 )
 
+add_library(ridersense_perception
+    src/perception/slam_processor.cpp
+    src/perception/object_detector.cpp
+    src/perception/lane_detector.cpp
+)
+
 target_include_directories(ridersense_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -28,6 +34,12 @@ target_include_directories(ridersense_common PUBLIC
 target_link_libraries(ridersense_sync PUBLIC
   ridersense_common
   ridersense_capture
+)
+
+target_link_libraries(ridersense_perception PUBLIC
+    ridersense_common
+    ridersense_capture
+    ${OpenCV_LIBS}
 )
 
 target_link_libraries(ridersense_common PUBLIC
@@ -65,5 +77,6 @@ target_link_libraries(ridersense PRIVATE
     ridersense_capture
     ridersense_storage
     ridersense_sync
+    ridersense_perception
 )
 
