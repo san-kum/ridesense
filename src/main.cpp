@@ -14,6 +14,15 @@
 #include "fusion/pose_fusion.h"
 #include "fusion/vehicle_state.h"
 
+#include "analytics/event_detector.h"
+#include "analytics/metrics_collector.h"
+
+#include "network/state_broadcaster.h"
+#include "network/state_server.h"
+#include "network/video_server.h"
+
+#include "replay/replay_controller.h"
+
 #include <atomic>
 #include <csignal>
 #include <filesystem>
@@ -30,12 +39,25 @@ int main(int argc, char **argv) {
   using namespace ridersense;
 
   std::string config_path = "config/default.yaml";
-  if (argc > 1) {
-    config_path = argv[1];
-  } else {
-    if (!std::filesystem::exists(config_path)) {
-      config_path = "../config/default.yaml";
+  std::string replay_dir = "";
+  bool replay_mode = false;
+
+  // parse args
+  for (int i = 1; i < argc; i++) {
+    std::string arg = argv[i];
+    if (arg == "--replay" && i + 1 < argc) {
+      replay_dir = argv[++i];
+      replay_mode = true;
+    } else if (arg == "--help" || arg == "-h") {
+      std::cout << "Usage: ridersense [config.yaml] [--replay <data_dir>]\n";
+      return 0;
+    } else {
+      config_path = arg;
     }
+  }
+
+  if (!std::filesystem::exists(config_path)) {
+    config_path = "../config/default.yaml";
   }
 
   try {
@@ -140,6 +162,92 @@ int main(int argc, char **argv) {
     service_mgr.add(vehicle_state);
   }
 
+  // analytics
+  std::shared_ptr<EventDetector> event_detector;
+  std::shared_ptr<MetricsCollector> metrics_collector;
+
+  if (Config::instance().service_enabled("event_detector")) {
+    auto ev_cfg = Config::instance().root()["analytics"]["event_detector"];
+    EventDetectorConfig cfg;
+    cfg.hard_brake_threshold = ev_cfg["hard_brake_threshold"].as<double>(-6.0);
+    cfg.hard_accel_threshold = ev_cfg["hard_accel_threshold"].as<double>(4.0);
+    cfg.max_lean_threshold = ev_cfg["max_lean_threshold"].as<double>(45.0);
+    cfg.close_object_distance = ev_cfg["close_object_distance"].as<double>(5.0);
+    cfg.high_slip_threshold = ev_cfg["high_slip_threshold"].as<double>(10.0);
+    cfg.cooldown_seconds = ev_cfg["cooldown_seconds"].as<double>(2.0);
+
+    event_detector = std::make_shared<EventDetector>(cfg);
+    service_mgr.add(event_detector);
+  }
+
+  if (Config::instance().service_enabled("metrics_collector")) {
+    auto met_cfg = Config::instance().root()["analytics"]["metrics"];
+    double window_sec = met_cfg["window_seconds"].as<double>(60.0);
+
+    metrics_collector = std::make_shared<MetricsCollector>(window_sec);
+    service_mgr.add(metrics_collector);
+
+    // wire event detector to metrics
+    if (event_detector) {
+      event_detector->set_callback([metrics_collector](const Event &ev) {
+        metrics_collector->on_event(ev);
+      });
+    }
+  }
+
+  // network
+  std::shared_ptr<StateServer> state_server;
+  std::shared_ptr<StateBroadcaster> state_broadcaster;
+
+  if (Config::instance().service_enabled("state_server")) {
+    auto net_cfg = Config::instance().root()["network"]["state_server"];
+    int port = net_cfg["port"].as<int>(9000);
+    int max_clients = net_cfg["max_clients"].as<int>(10);
+
+    state_server = std::make_shared<StateServer>(port, max_clients);
+    service_mgr.add(state_server);
+  }
+
+  if (Config::instance().service_enabled("state_broadcaster") && state_server) {
+    auto bc_cfg = Config::instance().root()["network"]["broadcaster"];
+    double rate_hz = bc_cfg["rate_hz"].as<double>(10.0);
+
+    state_broadcaster = std::make_shared<StateBroadcaster>(state_server, rate_hz);
+    service_mgr.add(state_broadcaster);
+
+    // wire event detector to broadcaster
+    if (event_detector) {
+      event_detector->set_callback([metrics_collector, state_broadcaster](const Event &ev) {
+        if (metrics_collector) {
+          metrics_collector->on_event(ev);
+        }
+        if (state_broadcaster) {
+          state_broadcaster->on_event(ev);
+        }
+      });
+    }
+
+    // wire metrics to broadcaster
+    if (metrics_collector) {
+      metrics_collector->set_callback([state_broadcaster](const RidingMetrics &m) {
+        if (state_broadcaster) {
+          state_broadcaster->on_metrics(m);
+        }
+      });
+    }
+  }
+
+  // video server
+  std::shared_ptr<VideoServer> video_server;
+  if (Config::instance().service_enabled("video_server")) {
+    auto vid_cfg = Config::instance().root()["network"]["video_server"];
+    int port = vid_cfg["port"].as<int>(9002);
+    int quality = vid_cfg["quality"].as<int>(80);
+
+    video_server = std::make_shared<VideoServer>(port, quality);
+    service_mgr.add(video_server);
+  }
+
   if (time_aligner) {
     time_aligner->set_callback([&](const SyncedFrames &bundle) {
       std::shared_ptr<PoseFrame> pose;
@@ -166,6 +274,18 @@ int main(int argc, char **argv) {
         if (vehicle_state) {
           vehicle_state->estimate(fusion_result);
         }
+
+        // analytics processing
+        if (event_detector) {
+          event_detector->process(fusion_result, detections, lanes);
+        }
+        if (metrics_collector) {
+          metrics_collector->on_fusion(fusion_result);
+        }
+        // broadcast state
+        if (state_broadcaster) {
+          state_broadcaster->on_fusion(fusion_result, bundle.gps);
+        }
       }
 
       if (frame_logger) {
@@ -185,64 +305,89 @@ int main(int argc, char **argv) {
     });
   }
 
-  if (Config::instance().service_enabled("camera")) {
-    auto cam_cfg = Config::instance().root()["services"]["camera"];
-    int device_id = cam_cfg["device_id"].as<int>(0);
-    int width = cam_cfg["width"].as<int>(640);
-    int height = cam_cfg["height"].as<int>(480);
-    int fps = cam_cfg["fps"].as<int>(30);
+  // replay mode or live sensors
+  std::shared_ptr<ReplayController> replay_controller;
 
-    auto camera = std::make_shared<CameraStream>(device_id, width, height, fps);
+  if (replay_mode) {
+    LOG_INFO(logger, "REPLAY MODE: {}", replay_dir);
 
+    replay_controller = std::make_shared<ReplayController>(replay_dir, 1.0);
+    service_mgr.add(replay_controller);
+
+    // wire replay to time aligner
     if (time_aligner) {
-      camera->set_callback([time_aligner](auto frame) {
+      replay_controller->set_imu_callback([time_aligner](auto frame) {
+        time_aligner->on_imu(frame);
+      });
+      replay_controller->set_gps_callback([time_aligner](auto frame) {
+        time_aligner->on_gps(frame);
+      });
+    }
+  } else {
+    // live sensor streams
+    if (Config::instance().service_enabled("camera")) {
+      auto cam_cfg = Config::instance().root()["services"]["camera"];
+      int device_id = cam_cfg["device_id"].as<int>(0);
+      int width = cam_cfg["width"].as<int>(640);
+      int height = cam_cfg["height"].as<int>(480);
+      int fps = cam_cfg["fps"].as<int>(30);
+
+      auto camera = std::make_shared<CameraStream>(device_id, width, height, fps);
+
+      camera->set_callback([time_aligner, frame_logger, video_server](auto frame) {
         auto img = std::static_pointer_cast<ImageFrame>(frame);
-        time_aligner->on_image(img);
+        
+        if (time_aligner) {
+          time_aligner->on_image(img);
+        }
+        if (frame_logger && !time_aligner) {
+          frame_logger->log_frame(frame);
+        }
+        if (video_server) {
+          video_server->on_frame(img);
+        }
       });
-    } else if (frame_logger) {
-      camera->set_callback(
-          [frame_logger](auto frame) { frame_logger->log_frame(frame); });
+
+      service_mgr.add(camera);
     }
 
-    service_mgr.add(camera);
-  }
+    if (Config::instance().service_enabled("imu")) {
+      auto imu_cfg = Config::instance().root()["services"]["imu"];
+      int rate_hz = imu_cfg["rate_hz"].as<int>(100);
 
-  if (Config::instance().service_enabled("imu")) {
-    auto imu_cfg = Config::instance().root()["services"]["imu"];
-    int rate_hz = imu_cfg["rate_hz"].as<int>(100);
+      auto imu = std::make_shared<ImuStream>(rate_hz);
 
-    auto imu = std::make_shared<ImuStream>(rate_hz);
+      if (time_aligner) {
+        imu->set_callback([time_aligner](auto frame) {
+          auto imu_frame = std::static_pointer_cast<ImuFrame>(frame);
+          time_aligner->on_imu(imu_frame);
+        });
+      } else if (frame_logger) {
+        imu->set_callback(
+            [frame_logger](auto frame) { frame_logger->log_frame(frame); });
+      }
 
-    if (time_aligner) {
-      imu->set_callback([time_aligner](auto frame) {
-        auto imu_frame = std::static_pointer_cast<ImuFrame>(frame);
-        time_aligner->on_imu(imu_frame);
-      });
-    } else if (frame_logger) {
-      imu->set_callback(
-          [frame_logger](auto frame) { frame_logger->log_frame(frame); });
+      service_mgr.add(imu);
     }
 
-    service_mgr.add(imu);
-  }
+    if (Config::instance().service_enabled("gps")) {
+      auto gps_cfg = Config::instance().root()["services"]["gps"];
+      int rate_hz = gps_cfg["rate_hz"].as<int>(10);
 
-  if (Config::instance().service_enabled("gps")) {
-    auto gps_cfg = Config::instance().root()["services"]["gps"];
-    int rate_hz = gps_cfg["rate_hz"].as<int>(10);
+      auto gps = std::make_shared<GpsStream>(rate_hz);
 
-    auto gps = std::make_shared<GpsStream>(rate_hz);
+      if (time_aligner) {
+        gps->set_callback([time_aligner](auto frame) {
+          auto gps_frame = std::static_pointer_cast<GpsFrame>(frame);
+          time_aligner->on_gps(gps_frame);
+        });
+      } else if (frame_logger) {
+        gps->set_callback(
+            [frame_logger](auto frame) { frame_logger->log_frame(frame); });
+      }
 
-    if (time_aligner) {
-      gps->set_callback([time_aligner](auto frame) {
-        auto gps_frame = std::static_pointer_cast<GpsFrame>(frame);
-        time_aligner->on_gps(gps_frame);
-      });
-    } else if (frame_logger) {
-      gps->set_callback(
-          [frame_logger](auto frame) { frame_logger->log_frame(frame); });
+      service_mgr.add(gps);
     }
-
-    service_mgr.add(gps);
   }
 
   if (!service_mgr.init_all()) {

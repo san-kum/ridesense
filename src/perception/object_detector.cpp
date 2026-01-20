@@ -94,12 +94,10 @@ ObjectDetector::detect(std::shared_ptr<ImageFrame> image) {
   result->image_height = image->image.rows;
 
   if (net_.empty()) {
-    // No model loaded - return empty detections
     return result;
   }
 
   try {
-    // Prepare input blob
     cv::Mat blob;
     cv::dnn::blobFromImage(image->image, blob, 1.0 / 255.0,
                            cv::Size(input_size_, input_size_), cv::Scalar(),
@@ -107,11 +105,9 @@ ObjectDetector::detect(std::shared_ptr<ImageFrame> image) {
 
     net_.setInput(blob);
 
-    // Forward pass
     std::vector<cv::Mat> outs;
     net_.forward(outs, output_names_);
 
-    // Postprocess
     result->detections = postprocess(image->image, outs);
 
   } catch (const cv::Exception &e) {
@@ -151,7 +147,6 @@ ObjectDetector::postprocess(const cv::Mat &frame,
     }
   }
 
-  // NMS
   std::vector<int> indices;
   cv::dnn::NMSBoxes(boxes, confidences, conf_threshold_, nms_threshold_,
                     indices);

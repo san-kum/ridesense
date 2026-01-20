@@ -48,7 +48,6 @@ SlamProcessor::process(std::shared_ptr<ImageFrame> image,
   auto pose = std::make_shared<PoseFrame>(image->timestamp, pose_sequence_++);
   pose->state = state_;
 
-  // simulating some motion
   double t = pose_sequence_ * 0.033;
   pose->position = Eigen::Vector3d(t * 0.5, 0.0, 0.0);
   pose->orientation = Eigen::Quaterniond::Identity();

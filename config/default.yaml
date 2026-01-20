@@ -69,3 +69,29 @@ services:
     enabled: false
   lane_detector:
     enabled: false
+  event_detector:
+    enabled: true
+  metrics_collector:
+    enabled: true
+  state_server:
+    enabled: true
+  state_broadcaster:
+    enabled: true
+
+analytics:
+  event_detector:
+    hard_brake_threshold: -6.0
+    hard_accel_threshold: 4.0
+    max_lean_threshold: 45.0
+    close_object_distance: 5.0
+    high_slip_threshold: 10.0
+    cooldown_seconds: 2.0
+  metrics:
+    window_seconds: 60
+
+network:
+  state_server:
+    port: 9000
+    max_clients: 10
+  broadcaster:
+    rate_hz: 10

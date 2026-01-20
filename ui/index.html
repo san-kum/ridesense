@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ridersense</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200;300;400&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <header class="header">
+      <h1>ridersense</h1>
+      <div class="status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">offline</span>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <div class="card video-card">
+        <div class="card-title">Camera</div>
+        <div class="video-container">
+          <img
+            id="video-feed"
+            src="http://localhost:9002/video"
+            alt="camera feed"
+          />
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Speed</div>
+        <div class="speed-display">
+          <div>
+            <div class="speed-value" id="speed-value">0</div>
+            <div class="speed-unit">km/h</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Lean</div>
+        <div class="lean-display">
+          <div class="lean-value" id="lean-value">0°</div>
+          <div class="lean-bar">
+            <div class="lean-indicator" id="lean-indicator"></div>
+          </div>
+          <div class="lean-labels">
+            <span>−60°</span>
+            <span>0°</span>
+            <span>+60°</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Position</div>
+        <div class="position-grid">
+          <div class="position-item">
+            <div class="label">Lat</div>
+            <div class="value" id="lat-value">0.000000</div>
+          </div>
+          <div class="position-item">
+            <div class="label">Lon</div>
+            <div class="value" id="lon-value">0.000000</div>
+          </div>
+          <div class="position-item">
+            <div class="label">Heading</div>
+            <div class="value" id="heading-value">0°</div>
+          </div>
+          <div class="position-item">
+            <div class="label">Last</div>
+            <div class="value" id="heartbeat-time">--:--</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card events-card">
+        <div class="card-title">Events</div>
+        <div class="event-log" id="event-log"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Session</div>
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <div class="label">Max</div>
+            <div class="value" id="max-speed">0</div>
+          </div>
+          <div class="metric-item">
+            <div class="label">Avg</div>
+            <div class="value" id="avg-speed">0</div>
+          </div>
+          <div class="metric-item">
+            <div class="label">Brakes</div>
+            <div class="value" id="hard-brakes">0</div>
+          </div>
+          <div class="metric-item">
+            <div class="label">Leans</div>
+            <div class="value" id="lean-warnings">0</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="dashboard.js"></script>
+  </body>
+</html>
+

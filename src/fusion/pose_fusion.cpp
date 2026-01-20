@@ -1,4 +1,5 @@
 #include "fusion/pose_fusion.h"
+#include <cmath>
 
 namespace ridersense {
 
@@ -103,11 +104,24 @@ PoseFusion::fuse(std::shared_ptr<PoseFrame> slam_pose,
   if (gps && gps->num_satellites >= 4) {
     Eigen::Vector3d gps_pos(0, 0, gps->altitude);
 
-    Eigen::Matrix3d cov;
-    cov.setIdentity();
-    cov *= gps_noise_ * gps_noise_;
+    Eigen::Matrix3d pos_cov;
+    pos_cov.setIdentity();
+    pos_cov *= gps_noise_ * gps_noise_;
 
-    ekf_.update_position(gps_pos, cov);
+    ekf_.update_position(gps_pos, pos_cov);
+
+    // Use GPS speed to correct velocity (heading-aligned)
+    double heading_rad = gps->heading * M_PI / 180.0;
+    Eigen::Vector3d gps_velocity(
+        gps->speed * std::cos(heading_rad),
+        gps->speed * std::sin(heading_rad),
+        0.0);
+
+    Eigen::Matrix3d vel_cov;
+    vel_cov.setIdentity();
+    vel_cov *= 1.0; // GPS velocity noise ~1 m/s
+
+    ekf_.update_velocity(gps_velocity, vel_cov);
 
     result->has_gps = true;
   }

@@ -35,8 +35,6 @@ void ExtendedKalmanFilter::set_process_noise(double pos, double vel,
   Q_.block<3, 3>(9, 9) *= 0.1;             // angular velocity
   Q_.block<3, 3>(12, 12) *= 0.001;         // accel bias
 
-  // Gyro bias noise is in last 3 states but we only use 15x15, so not
-  // explicitly set
 }
 
 void ExtendedKalmanFilter::predict(const Eigen::Vector3d &accel,
@@ -44,14 +42,12 @@ void ExtendedKalmanFilter::predict(const Eigen::Vector3d &accel,
   Eigen::Vector3d accel_unbiased = accel - accel_bias_;
   Eigen::Vector3d gyro_unbiased = gyro - gyro_bias_;
 
-  // Rotate acceleration to world frame and remove gravity
   Eigen::Vector3d accel_world = orientation_ * accel_unbiased;
   accel_world.z() -= GRAVITY;
 
   position_ += velocity_ * dt + 0.5 * accel_world * dt * dt;
   velocity_ += accel_world * dt;
 
-  // Update orientation using gyro
   double gyro_norm = gyro_unbiased.norm();
   if (gyro_norm > 1e-6) {
     Eigen::Vector3d axis = gyro_unbiased / gyro_norm;
@@ -63,7 +59,6 @@ void ExtendedKalmanFilter::predict(const Eigen::Vector3d &accel,
 
   angular_velocity_ = gyro_unbiased;
 
-  // Simplified covariance prediction (full would use Jacobian)
   P_ = P_ + Q_ * dt;
 }
 
@@ -78,14 +73,12 @@ void ExtendedKalmanFilter::update_position(
 
   Eigen::Matrix3d S = H * P_ * H.transpose() + measurement_covariance;
 
-  // kalman
   Eigen::Matrix<double, 15, 3> K = P_ * H.transpose() * S.inverse();
 
   Eigen::Matrix<double, 15, 1> dx = K * y;
   position_ += dx.segment<3>(0);
   velocity_ += dx.segment<3>(3);
 
-  // Orientation update (small angle approximation)
   Eigen::Vector3d orient_error = dx.segment<3>(6);
   double error_norm = orient_error.norm();
   if (error_norm > 1e-6) {

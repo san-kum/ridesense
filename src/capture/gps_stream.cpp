@@ -57,7 +57,6 @@ void GpsStream::generate_loop() {
     auto frame = std::make_shared<GpsFrame>(
         std::chrono::high_resolution_clock::now(), sample_count_++);
 
-    // Mock: slow circular motion
     double t = sample_count_ * 0.01;
     frame->latitude = lat_base_ + 0.001 * std::sin(t) + noise_(rng_);
     frame->longitude = lon_base_ + 0.001 * std::cos(t) + noise_(rng_);

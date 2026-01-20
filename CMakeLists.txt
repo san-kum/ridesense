@@ -53,6 +53,39 @@ target_link_libraries(ridersense_fusion PUBLIC
     ridersense_capture
 )
 
+add_library(ridersense_analytics
+    src/analytics/event_detector.cpp
+    src/analytics/metrics_collector.cpp
+)
+
+target_link_libraries(ridersense_analytics PUBLIC
+    ridersense_common
+    ridersense_capture
+)
+
+add_library(ridersense_network
+    src/network/state_server.cpp
+    src/network/state_broadcaster.cpp
+    src/network/video_server.cpp
+)
+
+target_link_libraries(ridersense_network PUBLIC
+    ridersense_common
+    ridersense_analytics
+    Threads::Threads
+)
+
+add_library(ridersense_replay
+    src/replay/replay_reader.cpp
+    src/replay/replay_controller.cpp
+)
+
+target_link_libraries(ridersense_replay PUBLIC
+    ridersense_common
+    ridersense_capture
+    Threads::Threads
+)
+
 target_link_libraries(ridersense_common PUBLIC
     spdlog::spdlog
     yaml-cpp
@@ -90,5 +123,8 @@ target_link_libraries(ridersense PRIVATE
     ridersense_sync
     ridersense_perception
     ridersense_fusion
+    ridersense_analytics
+    ridersense_network
+    ridersense_replay
 )
 
