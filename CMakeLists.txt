@@ -27,6 +27,12 @@ add_library(ridersense_perception
     src/perception/lane_detector.cpp
 )
 
+add_library(ridersense_fusion
+    src/fusion/ekf.cpp
+    src/fusion/pose_fusion.cpp
+    src/fusion/vehicle_state.cpp
+)
+
 target_include_directories(ridersense_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -40,6 +46,11 @@ target_link_libraries(ridersense_perception PUBLIC
     ridersense_common
     ridersense_capture
     ${OpenCV_LIBS}
+)
+
+target_link_libraries(ridersense_fusion PUBLIC
+    ridersense_common
+    ridersense_capture
 )
 
 target_link_libraries(ridersense_common PUBLIC
@@ -78,5 +89,6 @@ target_link_libraries(ridersense PRIVATE
     ridersense_storage
     ridersense_sync
     ridersense_perception
+    ridersense_fusion
 )
 

@@ -11,6 +11,9 @@
 #include "perception/object_detector.h"
 #include "perception/slam_processor.h"
 
+#include "fusion/pose_fusion.h"
+#include "fusion/vehicle_state.h"
+
 #include <atomic>
 #include <csignal>
 #include <filesystem>
@@ -110,6 +113,33 @@ int main(int argc, char **argv) {
     service_mgr.add(lane_detector);
   }
 
+  std::shared_ptr<PoseFusion> pose_fusion;
+  std::shared_ptr<VehicleState> vehicle_state;
+
+  if (Config::instance().service_enabled("pose_fusion")) {
+    auto fusion_cfg = Config::instance().root()["fusion"]["pose_fusion"];
+
+    pose_fusion = std::make_shared<PoseFusion>(
+        fusion_cfg["process_noise_position"].as<double>(),
+        fusion_cfg["process_noise_velocity"].as<double>(),
+        fusion_cfg["process_noise_orientation"].as<double>(),
+        fusion_cfg["slam_position_noise"].as<double>(),
+        fusion_cfg["gps_position_noise"].as<double>(),
+        fusion_cfg["imu_noise"].as<double>());
+
+    service_mgr.add(pose_fusion);
+  }
+
+  if (Config::instance().service_enabled("vehicle_state")) {
+    auto vs_cfg = Config::instance().root()["fusion"]["vehicle_state"];
+
+    vehicle_state = std::make_shared<VehicleState>(
+        vs_cfg["wheelbase"].as<double>(), vs_cfg["cg_height"].as<double>(),
+        vs_cfg["max_lean_angle"].as<double>());
+
+    service_mgr.add(vehicle_state);
+  }
+
   if (time_aligner) {
     time_aligner->set_callback([&](const SyncedFrames &bundle) {
       std::shared_ptr<PoseFrame> pose;
@@ -128,6 +158,16 @@ int main(int argc, char **argv) {
         lanes = lane_detector->detect(bundle.image);
       }
 
+      std::shared_ptr<FusionFrame> fusion_result;
+
+      if (pose_fusion) {
+        fusion_result = pose_fusion->fuse(pose, bundle.imu, bundle.gps);
+
+        if (vehicle_state) {
+          vehicle_state->estimate(fusion_result);
+        }
+      }
+
       if (frame_logger) {
         frame_logger->log_frame(bundle.image);
         frame_logger->log_frame(bundle.imu);
@@ -139,6 +179,8 @@ int main(int argc, char **argv) {
           frame_logger->log_frame(detections);
         if (lanes)
           frame_logger->log_frame(lanes);
+        if (fusion_result)
+          frame_logger->log_frame(fusion_result);
       }
     });
   }
@@ -217,18 +259,21 @@ int main(int argc, char **argv) {
   LOG_INFO(logger, "all services running");
 
   auto last_report = std::chrono::steady_clock::now();
+
   while (running) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_report)
             .count() >= 5) {
+
       if (time_aligner) {
         auto stats = time_aligner->get_stats();
         LOG_INFO(logger, "sync stats - bundles: {}, images: {}, dropped: {}",
                  stats.bundles_emitted, stats.images_received,
                  stats.images_dropped);
       }
+
       last_report = now;
     }
   }

@@ -29,6 +29,23 @@ perception:
     canny_high: 150
     hough_threshold: 50
 
+fusion:
+  pose_fusion:
+    enabled: true
+    process_noise_position: 0.1
+    process_noise_velocity: 0.5
+    process_noise_orientation: 0.01
+    slam_position_noise: 0.05
+    gps_position_noise: 5.0
+    imu_noise: 0.1
+
+  vehicle_state:
+    enabled: true
+    wheelbase: 1.5
+    cg_height: 0.6
+    max_lean_angle: 50.0
+    lean_noise: 1.0
+
 services:
   camera:
     enabled: false

@@ -123,4 +123,45 @@ struct LaneFrame : public Frame {
   LaneFrame(Timestamp ts, uint64_t seq) : Frame(FrameType::LANE, ts, seq) {}
 };
 
+struct FusionFrame : public Frame {
+  Eigen::Vector3d position;
+  Eigen::Quaterniond orientation;
+  Eigen::Vector3d velocity;
+  Eigen::Vector3d angular_velocity;
+
+  Eigen::Matrix<double, 15, 15> covariance;
+
+  Eigen::Vector3d accel_bias;
+  Eigen::Vector3d gyro_bias;
+
+  double lean_angle;
+  double pitch_angle;
+  double yaw_rate;
+  double speed;
+  double lateral_accel;
+  double longitudinal_accel;
+
+  double slip_angle;
+  double slip_ratio;
+
+  enum class FusionQuality { EXCELLENT, GOOD, DEGRADED, LOST };
+  FusionQuality quality;
+
+  bool has_slam{false};
+  bool has_gps{false};
+  bool has_imu{false};
+
+  FusionFrame(Timestamp ts, uint64_t seq)
+      : Frame(FrameType::POSE, ts, seq), position(Eigen::Vector3d::Zero()),
+        orientation(Eigen::Quaterniond::Identity()),
+        velocity(Eigen::Vector3d::Zero()),
+        angular_velocity(Eigen::Vector3d::Zero()),
+        accel_bias(Eigen::Vector3d::Zero()), gyro_bias(Eigen::Vector3d::Zero()),
+        lean_angle(0.0), pitch_angle(0.0), yaw_rate(0.0), speed(0.0),
+        lateral_accel(0.0), longitudinal_accel(0.0), slip_angle(0.0),
+        slip_ratio(0.0), quality(FusionQuality::LOST) {
+    covariance.setIdentity();
+  }
+};
+
 } // namespace ridersense
